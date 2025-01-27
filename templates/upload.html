@@ -91,7 +91,7 @@
 
             // Cargar listas existentes dinámicamente
             $.ajax({
-                url: "/get_lists",
+                url: "/verymail/get_lists",
                 type: "GET",
                 success: function(response) {
                     if (response.length > 0) {
@@ -170,7 +170,7 @@
 
                 // Enviar solicitud al backend
                 $.ajax({
-                    url: `/validate_existing?list_id=${listId}`, // Usar list_id en lugar de list_name
+                    url: `/verymail/validate_existing?list_id=${listId}`, // Usar list_id en lugar de list_name
                     type: "GET",
                     success: function () {
                         // Ocultar el formulario y mostrar progreso
@@ -292,7 +292,7 @@
                     }
 
                     $.ajax({
-                        url: "/save_validated_list",
+                        url: "/verymail/save_validated_list",
                         type: "POST",
                         contentType: "application/json",
                         data: JSON.stringify({

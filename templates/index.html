@@ -26,7 +26,7 @@
         <h1 class="text-center">Validador y Envío de Correos</h1>
 
         <!-- Formulario de carga de archivo -->
-        <form id="uploadForm" method="POST" action="/validate" enctype="multipart/form-data" class="mt-4">
+        <form id="uploadForm" method="POST" action="/verymail/validate" enctype="multipart/form-data" class="mt-4">
             <div class="mb-3">
                 <label for="file" class="form-label">Archivo CSV</label>
                 <input type="file" id="file" name="file" class="form-control" accept=".csv" required>
@@ -47,7 +47,7 @@
         <!-- Formulario para agregar un correo manualmente -->
         <section class="mt-5">
             <h2>Agregar correo manualmente</h2>
-            <form id="addEmailForm" method="POST" action="/add_email">
+            <form id="addEmailForm" method="POST" action="/verymail/add_email">
                 <div class="mb-3">
                     <label for="name" class="form-label">Nombre</label>
                     <input type="text" id="name" name="name" class="form-control" required>
@@ -84,7 +84,7 @@
 
     <script>
         document.getElementById('viewListsButton').addEventListener('click', async () => {
-            const response = await fetch('/get_lists');
+            const response = await fetch('/verymail/get_lists');
             const lists = await response.json();
             const listsElement = document.getElementById('lists');
             listsElement.innerHTML = '';

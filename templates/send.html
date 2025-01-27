@@ -115,7 +115,7 @@
 
                 // Enviar datos al backend usando AJAX
                 $.ajax({
-                    url: "/sendbackground/{{ list_id }}", // Endpoint para el envío
+                    url: "/verymail/sendbackground/{{ list_id }}", // Endpoint para el envío
                     type: "POST",
                     data: formData,
                     success: function (response) {
