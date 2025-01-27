@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enviar Correos</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+    <style>
+        #preview {
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+            height: 500px;
+            overflow-y: auto;
+        }
+        #editor {
+            height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Configurar y Enviar Correos</h1>
+        <form id="send-form" method="POST" class="mt-4">
+            <div class="mb-3">
+                <label for="aws_access_key" class="form-label">AWS Access Key</label>
+                <input type="text" name="aws_access_key" id="aws_access_key" class="form-control" placeholder="Escribe tu AWS Access Key" required>
+            </div>
+            <div class="mb-3">
+                <label for="aws_secret_key" class="form-label">AWS Secret Key</label>
+                <input type="text" name="aws_secret_key" id="aws_secret_key" class="form-control" placeholder="Escribe tu AWS Secret Key" required>
+            </div>
+            <div class="mb-3">
+                <label for="aws_region" class="form-label">AWS Region</label>
+                <input type="text" name="aws_region" id="aws_region" class="form-control" placeholder="Ejemplo: us-east-1" required>
+            </div>
+            <div class="mb-3">
+                <label for="source_email" class="form-label">Correo Fuente (Source)</label>
+                <input type="email" name="source_email" id="source_email" class="form-control" placeholder="Correo verificado en AWS SES" required>
+            </div>
+            <div class="mb-3">
+                <label for="subject" class="form-label">Asunto del Correo</label>
+                <input type="text" name="subject" id="subject" class="form-control" placeholder="Escribe el asunto del correo" required>
+            </div>
+
+            <!-- Editor y Previsualización -->
+            <div class="row">
+                <!-- Previsualización -->
+                <div class="col-md-6">
+                    <h4 class="text-center">Previsualización</h4>
+                    <div id="preview"></div>
+                </div>
+                <!-- Editor -->
+                <div class="col-md-6">
+                    <h4 class="text-center">Editor de HTML</h4>
+                    <textarea name="html_body" id="html_body" class="form-control" rows="20" placeholder="Escribe aquí el contenido HTML del correo" required></textarea>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success mt-3">Enviar Correos</button>
+        </form>
+
+        <!-- Progreso de envío -->
+        <div id="progress-container" class="mt-5" style="display: none;">
+            <h3>Progreso de Envío</h3>
+            <div class="progress mb-3">
+                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+            <p id="stats">Enviados: 0 | Fallidos: 0</p>
+            <ul id="failed-emails" class="list-group"></ul>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function () {
+            const socket = io(); // Inicializar Socket.IO
+
+            // Actualizar la previsualización en tiempo real
+            $("#html_body").on("input", function () {
+                const htmlContent = $(this).val();
+                $("#preview").html(htmlContent);
+            });
+
+            // Cargar valores en localStorage
+            const fields = ["aws_access_key", "aws_secret_key", "aws_region", "source_email", "subject", "html_body"];
+            fields.forEach(field => {
+                const value = localStorage.getItem(field);
+                if (value) {
+                    $("#" + field).val(value);
+                    if (field === "html_body") {
+                        $("#preview").html(value);
+                    }
+                }
+                $("#" + field).on("input", function () {
+                    localStorage.setItem(field, $(this).val());
+                });
+            });
+
+            $("#send-form").on("submit", function (e) {
+                e.preventDefault(); // Prevenir el envío tradicional del formulario
+
+                const formData = {
+                    aws_access_key: $("#aws_access_key").val(),
+                    aws_secret_key: $("#aws_secret_key").val(),
+                    aws_region: $("#aws_region").val(),
+                    source_email: $("#source_email").val(),
+                    subject: $("#subject").val(),
+                    html_body: $("#html_body").val()
+                };
+
+                $("#send-form").hide();
+                $("#progress-container").fadeIn();
+
+                // Enviar datos al backend usando AJAX
+                $.ajax({
+                    url: "/sendbackground/{{ list_id }}", // Endpoint para el envío
+                    type: "POST",
+                    data: formData,
+                    success: function (response) {
+                        console.log("Envío iniciado:", response.message);
+                    },
+                    error: function (xhr) {
+                        console.error("Error al iniciar el envío:", xhr.responseJSON.error);
+                        alert("Error: " + xhr.responseJSON.error);
+                    }
+                });
+
+                // Escuchar eventos de progreso de envío
+                socket.on("send_progress", function (data) {
+                    const percentage = (data.current / data.total) * 100;
+                    $("#progress-bar").css("width", `${percentage}%`);
+                    $("#stats").text(`Enviados: ${data.sent} | Fallidos: ${data.failed}`);
+
+                    if (data.failed > 0) {
+                        $("#failed-emails").append(`<li class="list-group-item list-group-item-danger">${data.last_email} - Fallido</li>`);
+                    }
+                });
+
+                // Escuchar evento de finalización
+                socket.on("send_complete", function (data) {
+                    console.log("Envío completado:", data);
+
+                    if (data.failed_emails.length > 0) {
+                        $("#failed-emails").append(`<li class="list-group-item list-group-item-danger">Correos fallidos: ` + data.failed_emails.join(", ") + `</li>`);
+                    }
+                });
+            });
+        });
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

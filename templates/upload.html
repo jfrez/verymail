@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validador de Correos</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Validador de Correos</h1>
+
+        <!-- Subir archivo -->
+        <form id="upload-form" enctype="multipart/form-data" class="mt-4">
+            <div id="upload-part">
+            <div class="mb-3">
+                <label for="file" class="form-label">Archivo CSV</label>
+                <input type="file" name="file" id="file" class="form-control" accept=".csv">
+                <small id="file-help" class="form-text text-muted">Sube un archivo CSV con los correos a validar.</small>
+            </div>
+            <div class="mb-3">
+                <label for="delimiter" class="form-label">Separador de columnas</label>
+                <select id="delimiter" name="delimiter" class="form-select">
+                    <option value="," selected>Coma (,)</option>
+                    <option value=";">Punto y coma (;)</option>
+                </select>
+            </div>
+        </div>
+            <div class="mb-3">
+                <label for="list_option" class="form-label">Selecciona una lista o crea una nueva</label>
+                <select id="list_option" name="list_option" class="form-select">
+                    <option value="new">Crear una nueva lista</option>
+                </select>
+                <input type="text" id="new_list_name" name="new_list_name" class="form-control mt-2" placeholder="Nombre de la nueva lista" style="display: none;">
+            </div>
+            <div class="d-flex justify-content-between">
+                <button type="submit" class="btn btn-primary">Subir Archivo</button>
+                <button id="skip-validation" class="btn btn-outline-secondary" style="display: none;">Validar lista existente</button>
+            </div>
+        </form>
+
+        <!-- Seleccionar columna de correos -->
+        <div id="columns-container" class="mt-4" style="display: none;">
+            <h4>Selecciona la columna de correos:</h4>
+            <select id="email-column" class="form-select" >
+            </select>
+            <button id="validate-button" class="btn btn-success mt-3">Validar Correos</button>
+        </div>
+
+        <!-- Progreso de validación -->
+        <div id="progress-container" class="mt-4" style="display: none;">
+            <h4>Progreso de Validación</h4>
+            <div class="progress">
+                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+            <p id="stats"></p>
+            <ul id="validation-messages" class="list-group mt-3"></ul>
+        </div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            // Inicializar la interfaz
+            const socket = io();
+            const $progressBar = $("#progress-bar");
+            const $validationMessages = $("#validation-messages");
+            const $listOption = $("#list_option");
+            $listOption.on("change", function () {
+                if ($listOption.val() === "new") {
+                    // Mostrar opciones para crear nueva lista
+                    $("#new_list_name").show();
+                    $("#skip-validation").hide();
+                    $("#upload-form button[type='submit']").show(); // Botón de subir archivo
+                    $("#file").prop("disabled", false); // Habilitar carga de archivo
+                    $("#delimiter").prop("disabled", false); // Habilitar selección de delimitador
+                } else {
+                    // Ocultar todo lo relacionado con subir archivos y mostrar solo validar lista existente
+                    $("#new_list_name").hide();
+                    $("#upload-part").hide();
+                    $("#skip-validation").show();
+                    $("#upload-form button[type='submit']").hide(); // Ocultar botón de subir archivo
+                    $("#file").prop("disabled", true); // Deshabilitar carga de archivo
+                    $("#delimiter").prop("disabled", true); // Deshabilitar selección de delimitador
+                }
+            });
+
+            $("#columns-container").hide();
+            $("#progress-container").hide();
+
+            // Cargar listas existentes dinámicamente
+            $.ajax({
+                url: "/get_lists",
+                type: "GET",
+                success: function(response) {
+                    if (response.length > 0) {
+                        response.forEach(list => {
+                            // Agregar opciones con el ID como valor y el nombre como texto
+                            $listOption.append(`<option value="${list.id}">${list.name}</option>`);
+                        });
+                    } else {
+                        $("#skip-validation").hide(); // Ocultar botón si no hay listas
+                    }
+                },
+                error: function() {
+                    alert("Error al cargar las listas existentes.");
+                }
+            });
+
+
+            if ($listOption.val() === "new") {
+                $("#new_list_name").show();
+                $("#skip-validation").hide();
+            } else {
+                $("#new_list_name").hide();
+                $("#skip-validation").show();
+            }
+
+            // Subir archivo y obtener columnas
+            $("#upload-form").on("submit", function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                $("#upload-form").hide();
+                if ($listOption.val() === "new") {
+                    const newListName = $("#new_list_name").val().trim();
+                    if (!newListName) {
+                        $("#file-help").text("Debe proporcionar un nombre para la nueva lista.").addClass("text-danger");
+                        return;
+                    }
+                    $.ajax({
+                    url: "/columns",
+                    type: "POST",
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        const columns = response.columns;
+                        const $select = $("#email-column");
+
+                        $select.empty();
+                        columns.forEach(column => {
+                            $select.append(`<option value="${column}">${column}</option>`);
+                        });
+
+                        $("#columns-container").fadeIn();
+
+                    },
+                    error: function(xhr) {
+                        alert(xhr.responseJSON.error);
+                    }
+                });
+                    formData.append("list_name", newListName);
+                } else {
+                    formData.append("list_name", $listOption.val());
+                }
+
+               
+            });
+
+            // Validar lista existente
+            $("#skip-validation").on("click", function () {
+                
+                const listId = $("#list_option").val(); // Obtener el ID de la lista seleccionada
+
+                if (!listId || listId === "new") {
+                    alert("Por favor, selecciona una lista válida.");
+                    return;
+                }
+
+                // Enviar solicitud al backend
+                $.ajax({
+                    url: `/validate_existing?list_id=${listId}`, // Usar list_id en lugar de list_name
+                    type: "GET",
+                    success: function () {
+                        // Ocultar el formulario y mostrar progreso
+                        
+                        
+                    },
+                    error: function (xhr) {
+                        alert(xhr.responseJSON.error || "Error durante la validación.");
+                    }
+                });
+                $("#upload-form").hide();
+                $("#progress-container").show();
+
+                // Manejar eventos de progreso con Socket.IO
+                socket.on("progress", function(data) {
+                    const percentage = (data.current / data.total) * 100;
+                    $progressBar.css("width", `${percentage}%`);
+                    $("#stats").text(`Válidos: ${data.valid} | Inválidos: ${data.invalid}`);
+
+                    messageClass = data.status === "success" ? "list-group-item-success" : "list-group-item-danger";
+                    messageClass = data.status === "invalid" ? "list-group-item-danger" : "";
+                    messageClass = data.status === "pending" ? "list-group-item-warning" : "";
+
+                    $validationMessages.html(`
+                        <li class="list-group-item ${messageClass}">
+                            ${data.email}: ${data.message}
+                        </li>
+                    `);
+                });
+
+                socket.on("validation_complete", function(data) {
+                    const listId = $("#list_option").val(); // Usar list_id del selector
+                    const validatedEmails = data.list; 
+
+                    if (!listId) {
+                        alert("Error: El ID de la lista no está definido.");
+                        return;
+                    }
+
+                    $.ajax({
+                        url: "/save_validated_list",
+                        type: "POST",
+                        contentType: "application/json",
+                        data: JSON.stringify({
+                            list_id: listId,          // Enviar list_id en lugar de list_name
+                            emails: validatedEmails, // Correos validados
+                            emailcolumn: "email"      // Nombre de la columna con los correos
+                        }),
+                        success: function(response) {
+                            const listId = response.list_id; // Obtener el ID de la lista desde la respuesta del servidor
+                            if (!listId) {
+                                alert("Error: No se pudo obtener el ID de la lista.");
+                                return;
+                            }
+                            window.location.href = `/summary?list_id=${listId}`; // Redirige al resumen con el ID de la lista
+                        },
+                        error: function(xhr) {
+                            alert("Error al guardar la lista: " + xhr.responseJSON.error);
+                        }
+                    });
+                });
+
+            });
+
+
+            // Validar correos de un archivo subido
+            $("#validate-button").on("click", function() {
+                const fileInput = $("#file")[0].files[0];
+                const emailColumn = $("#email-column").val();
+
+                if (!fileInput || !emailColumn) {
+                    alert("Archivo o columna no seleccionados.");
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append("file", fileInput);
+                formData.append("email_column", emailColumn);
+                formData.append("delimiter", $("#delimiter").val());
+
+                $.ajax({
+                    url: "/validate",
+                    type: "POST",
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function() {
+                        $("#columns-container").hide();
+                        $("#progress-container").show();
+                    },
+                    error: function(xhr) {
+                        alert(xhr.responseJSON.error);
+                    }
+                });
+
+                socket.on("progress", function(data) {
+                    const percentage = (data.current / data.total) * 100;
+                    $progressBar.css("width", `${percentage}%`);
+                    $("#stats").text(`Válidos: ${data.valid} | Inválidos: ${data.invalid} | Pendientes: ${data.pending}`);
+
+                    messageClass = data.status === "success" ? "list-group-item-success" : "list-group-item-danger";
+                    messageClass = data.status === "invalid" ? "list-group-item-danger" : "";
+                    messageClass = data.status === "pending" ? "list-group-item-warning" : "";
+
+                    $validationMessages.html(`
+                        <li class="list-group-item ${messageClass}">
+                            ${data.email}: ${data.message}
+                        </li>
+                    `);
+                });
+
+                socket.on("validation_complete", function(data) {
+                    const listName = $("#new_list_name").val().trim() || $("#list_option").val();
+                    const validatedEmails = data.list; 
+
+                    if (!listName) {
+                        alert("Error: El nombre de la lista no está definido.");
+                        return;
+                    }
+
+                    $.ajax({
+                        url: "/save_validated_list",
+                        type: "POST",
+                        contentType: "application/json",
+                        data: JSON.stringify({
+                            list_name: listName,
+                            emails: validatedEmails,
+                            emailcolumn: emailColumn
+
+                        }),
+                        success: function(response) {
+                            const listId = response.list_id; // Obtener el ID de la lista desde la respuesta del servidor
+                            if (!listId) {
+                                alert("Error: No se pudo obtener el ID de la lista.");
+                                return;
+                            }
+                            window.location.href = `/summary?list_id=${listId}`; // Redirige al resumen con el ID de la lista
+                        },
+
+                        error: function(xhr) {
+                            alert("Error al guardar la lista: " + xhr.responseJSON.error);
+                        }
+                    });
+                });
+
+            });
+        });
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
